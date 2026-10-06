@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Connect to Clarity</title>
+<style>
+  :root { color-scheme: light dark; --teal:#334C4F; --copper:#BE845F; --cream:#EBE6E0; }
+  body { font: 16px/1.45 -apple-system, system-ui, sans-serif; margin: 0; min-height: 100vh; display: grid; place-items: center;
+         background: var(--teal); color: #1d2a2b; }
+  main { background: var(--cream); width: min(420px, 92vw); border-radius: 18px; padding: 28px; box-shadow: 0 10px 40px #0004; }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  p { margin: 8px 0; }
+  .muted { color: #566667; font-size: 14px; }
+  ul { padding-left: 20px; margin: 10px 0; }
+  input { width: 100%; box-sizing: border-box; font: inherit; padding: 11px 12px; margin: 6px 0; border-radius: 10px; border: 1px solid #b9b2a8; background: #fff; color: #1d2a2b; }
+  button { font: inherit; font-weight: 600; padding: 12px 16px; border-radius: 12px; border: 0; cursor: pointer; width: 100%; margin-top: 8px; }
+  .primary { background: var(--copper); color: #fff; }
+  .secondary { background: transparent; color: #334C4F; border: 1px solid #334C4F; }
+  button:disabled { opacity: .5; cursor: default; }
+  .err { color: #a3261c; font-size: 14px; min-height: 1.2em; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Connect to Clarity</h1>
+  <p id="status" class="muted">Loading…</p>
+
+  <form id="signin" hidden>
+    <p class="muted">Sign in to your Clarity account to continue.</p>
+    <input id="email" type="email" autocomplete="username" placeholder="Email" required>
+    <input id="password" type="password" autocomplete="current-password" placeholder="Password" required>
+    <button class="primary" type="submit">Sign in</button>
+  </form>
+
+  <section id="consent" hidden>
+    <p><strong id="client">An app</strong> wants to use your Clarity account (<span id="who"></span>).</p>
+    <p>If you allow it, it will be able to:</p>
+    <ul>
+      <li>read your lists, tasks, labels and calendars</li>
+      <li>add tasks, subtasks and calendar items</li>
+      <li>mark tasks done</li>
+    </ul>
+    <p class="muted">It cannot delete or edit existing tasks. You can disconnect it later from Claude's connector settings.</p>
+    <button id="approve" class="primary">Allow</button>
+    <button id="deny" class="secondary">Deny</button>
+  </section>
+
+  <p id="err" class="err" role="alert"></p>
+</main>
+
+<script src="./config.js"></script>
+<script type="module">
+  import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+  const $ = (id) => document.getElementById(id);
+  const cfg = window.CLARITY_CONFIG || {};
+  const fail = (m) => { $("err").textContent = m; $("status").hidden = true; };
+
+  if (!cfg.url || !cfg.key) { fail("This page is not configured (config.js is missing)."); throw new Error("no config"); }
+  const supabase = createClient(cfg.url, cfg.key, { auth: { persistSession: true, detectSessionInUrl: false } });
+  const authorizationId = new URL(location.href).searchParams.get("authorization_id");
+  if (!authorizationId) { fail("This page is opened by Claude when you connect. Start from Claude's connector settings."); throw new Error("no id"); }
+
+  async function start() {
+    $("err").textContent = "";
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { $("status").hidden = true; $("signin").hidden = false; return; }
+    $("signin").hidden = true; $("status").hidden = false; $("status").textContent = "Checking the request…";
+    const { data, error } = await supabase.auth.oauth.getAuthorizationDetails(authorizationId);
+    if (error || !data) { fail(error?.message || "This request is no longer valid. Try connecting again from Claude."); return; }
+    if (data.redirect_url) { location.href = data.redirect_url; return; }   // already approved before
+    $("client").textContent = data.client?.name || "An app";
+    $("who").textContent = data.user?.email || "";
+    $("status").hidden = true; $("consent").hidden = false;
+  }
+
+  async function decide(approve) {
+    $("approve").disabled = $("deny").disabled = true;
+    const fn = approve ? supabase.auth.oauth.approveAuthorization : supabase.auth.oauth.denyAuthorization;
+    const { data, error } = await fn.call(supabase.auth.oauth, authorizationId);
+    if (error || !data?.redirect_url) {
+      $("approve").disabled = $("deny").disabled = false;
+      fail(error?.message || "Something went wrong. Try again."); return;
+    }
+    location.href = data.redirect_url;
+  }
+
+  $("signin").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const { error } = await supabase.auth.signInWithPassword({ email: $("email").value, password: $("password").value });
+    $("password").value = "";
+    if (error) { $("err").textContent = error.message; return; }
+    start();
+  });
+  $("approve").addEventListener("click", () => decide(true));
+  $("deny").addEventListener("click", () => decide(false));
+
+  start().catch((e) => fail(e.message));
+</script>
+</body>
+</html>
