@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Email confirmed</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.45 -apple-system, system-ui, sans-serif; margin: 0; min-height: 100vh; display: grid; place-items: center; background: #334C4F; color: #1d2a2b; }
+  main { background: #EBE6E0; width: min(420px, 92vw); border-radius: 18px; padding: 28px; box-shadow: 0 10px 40px #0004; }
+  h1 { font-size: 22px; margin: 0 0 8px; }
+  p { margin: 8px 0; }
+  .muted { color: #566667; font-size: 14px; }
+  .bad h1 { color: #a3261c; }
+</style>
+</head>
+<body>
+<main id="m">
+  <h1 id="title">Email confirmed</h1>
+  <p id="msg">Your Clarity account is confirmed. Go back to the Clarity app and sign in.</p>
+  <p class="muted">You can close this page.</p>
+</main>
+<script>
+  // Supabase puts the outcome in the URL fragment (#...) or query (?...). A failure comes back as error=...&error_description=...
+  const p = new URLSearchParams(location.hash.replace(/^#/, "") + "&" + location.search.replace(/^\?/, ""));
+  if (p.get("error") || p.get("error_code")) {
+    document.getElementById("m").className = "bad";
+    document.getElementById("title").textContent = "This link didn't work";
+    document.getElementById("msg").textContent =
+      "It may have expired or already been used. In the Clarity app, tap \u201cResend confirmation\u201d to get a new one.";
+  }
+  history.replaceState(null, "", location.pathname);   // drop any tokens from the address bar
+</script>
+</body>
+</html>

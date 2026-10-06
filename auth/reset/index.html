@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Reset your Clarity password</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.45 -apple-system, system-ui, sans-serif; margin: 0; min-height: 100vh; display: grid; place-items: center; background: #334C4F; color: #1d2a2b; }
+  main { background: #EBE6E0; width: min(420px, 92vw); border-radius: 18px; padding: 28px; box-shadow: 0 10px 40px #0004; }
+  h1 { font-size: 22px; margin: 0 0 8px; }
+  p { margin: 8px 0; }
+  .muted { color: #566667; font-size: 14px; }
+  input { width: 100%; box-sizing: border-box; font: inherit; padding: 11px 12px; margin: 6px 0; border-radius: 10px; border: 1px solid #b9b2a8; background: #fff; color: #1d2a2b; }
+  button { font: inherit; font-weight: 600; padding: 12px 16px; border-radius: 12px; border: 0; cursor: pointer; width: 100%; margin-top: 8px; background: #BE845F; color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  .err { color: #a3261c; font-size: 14px; min-height: 1.2em; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Reset your password</h1>
+  <p id="status" class="muted">Checking your link…</p>
+
+  <form id="form" hidden>
+    <p class="muted">Choose a new password (at least 8 characters).</p>
+    <input id="pw1" type="password" autocomplete="new-password" placeholder="New password" minlength="8" required>
+    <input id="pw2" type="password" autocomplete="new-password" placeholder="Repeat new password" minlength="8" required>
+    <button id="save" type="submit">Save new password</button>
+  </form>
+
+  <section id="done" hidden>
+    <p><strong>Password updated.</strong></p>
+    <p>Go back to the Clarity app and sign in with your new password.</p>
+  </section>
+
+  <section id="bad" hidden>
+    <p><strong>This link didn't work.</strong></p>
+    <p>It may have expired or already been used. In the Clarity app, tap &ldquo;Forgot password?&rdquo; to get a new one.</p>
+  </section>
+
+  <p id="err" class="err" role="alert"></p>
+</main>
+
+<script src="../../oauth/consent/config.js"></script>
+<script type="module">
+  import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+  const $ = (id) => document.getElementById(id);
+  const show = (id) => { for (const x of ["status", "form", "done", "bad"]) $(x).hidden = x !== id; };
+  const cfg = window.CLARITY_CONFIG || {};
+  if (!cfg.url || !cfg.key) { show("bad"); $("err").textContent = "This page is not configured."; throw new Error("no config"); }
+
+  // The emailed link carries a one-time recovery session in the URL fragment. supabase-js reads it and signs this
+  // page in; we only use that session to set the new password, then sign out. Nothing is kept on this device.
+  const supabase = createClient(cfg.url, cfg.key, { auth: { persistSession: false, detectSessionInUrl: true, flowType: "implicit" } });
+  const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
+  const linkFailed = hash.get("error") || hash.get("error_code");
+
+  let ready = false;
+  supabase.auth.onAuthStateChange((event) => {
+    if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") { ready = true; show("form"); }
+  });
+  setTimeout(async () => {
+    if (ready) return;
+    const { data } = await supabase.auth.getSession();
+    if (data.session && !linkFailed) { ready = true; show("form"); } else show("bad");
+  }, 2500);
+
+  $("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    $("err").textContent = "";
+    if ($("pw1").value !== $("pw2").value) { $("err").textContent = "The two passwords don't match."; return; }
+    $("save").disabled = true;
+    const { error } = await supabase.auth.updateUser({ password: $("pw1").value });
+    $("pw1").value = $("pw2").value = "";
+    if (error) { $("save").disabled = false; $("err").textContent = error.message; return; }
+    await supabase.auth.signOut();
+    history.replaceState(null, "", location.pathname);
+    show("done");
+  });
+</script>
+</body>
+</html>
